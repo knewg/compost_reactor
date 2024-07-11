@@ -9,11 +9,11 @@ if [ -z "$1" ]; then
   exit 1
 fi
 if [ "$1" == "build" ] || [ $1 == "b" ] || [ $1 == "bu" ] || [ $1 == "bum" ]; then
-  arduino-cli compile --fqbn $board $filename
+  arduino-cli compile --fqbn $board $filename || exit 2
 fi
 if [ "$1" == "upload" ] || [ $1 == "u" ] || [ $1 == "um" ] || [ $1 == "bum" ] || [ $1 == "bu" ]; then
-  arduino-cli upload --port $serialport --fqbn $board --board-options UploadSpeed=460800 $filename
+  arduino-cli upload --port $serialport --fqbn $board --board-options UploadSpeed=460800 $filename || exit 3
 fi
 if [ "$1" == "monitor" ] || [ $1 == "m" ] || [ $1 == "um" ] || [ $1 == "bum" ]; then
-  arduino-cli monitor --port $serialport --fqbn $board --config 9600
+  arduino-cli monitor --port $serialport --fqbn $board --config 9600 || exit 4
 fi

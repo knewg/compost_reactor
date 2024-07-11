@@ -30,7 +30,7 @@
 #define RELAY_SPARE_PIN 17
 
 #define DEBOUNCE_TIME  500
-#define WIFI_RECONNECT_TIMEOUT 15000
+#define WIFI_RECONNECT_TIMEOUT 30000
 #define MQTT_RECONNECT_TIMEOUT 5000
 
 #define ROTATION_MAX_TIME 10
@@ -47,7 +47,7 @@
 #define LOG_DEBUG 3
 #define LOG_PREFIX_LENGTH 7
 
-#define LOG_LEVEL 3
+#define LOG_LEVEL LOG_INFO
 
 #define MQTT_PREFIX "hallfors/compostReactor/"
 #define MQTT_TOPIC_LOG "log"
@@ -74,7 +74,6 @@ const char logLevels [][LOG_PREFIX_LENGTH + 1] {
   "INFO:  ",
   "DEBUG: "
 };
-
 
 WiFiClient wificlient;
 PubSubClient client(wificlient);
@@ -107,15 +106,15 @@ const byte output_pins[NUM_OUTPUTS] = {
 
 bool processingInstruction = false;
 
-char * standardRecipe = "W10F2R1W10";
+char * standardRecipe = "W10 F2 R1 W10";
 char * overrideRecipe = "";
 byte recipePosition = 0;
 
 char currentInstruction = '0';
 int currentValue = 0;
 
-int wifiConnectionStart = -1;
-int mqttConnectionStart = -1;
+unsigned long lastWifiConnectionAttempt = 0;
+unsigned long lastMQTTConnectionAttempt = 0;
 
 unsigned long lastDebounceTime = 0;
 
@@ -134,7 +133,9 @@ void setup() {
   Serial.begin(9600);    // Initialize the Serial monitor for debugging
   now = millis();
   WiFi.mode(WIFI_STA); //Optional
-  //randomSeed(analogRead(36));
+  WiFi.setHostname(mqtt_client_id);
+  WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN);
+  WiFi.setSortMethod(WIFI_CONNECT_AP_BY_SIGNAL);
   manage_connection();
   delay(1000);
 }
@@ -177,7 +178,7 @@ void getNextInstruction() {
   {
     char nextChar = standardRecipe[recipePosition];
     log_message(LOG_DEBUG, "getNextInstruction: nextChar %c", nextChar);
-    if (nextChar == 'R' || nextChar == 'F' || nextChar == 'W') {
+    if (nextChar == ' ' || nextChar == 'R' || nextChar == 'F' || nextChar == 'W') {
       if (instructionFound) { //Instruction already found, recipe read
         if (valueFound) {
           return; //Return successfully
@@ -187,8 +188,10 @@ void getNextInstruction() {
         currentInstruction = '0';
         currentValue = 0;
       }
-      currentInstruction = nextChar;
-      instructionFound = true;
+      if(nextChar != ' ') { // Allow (optional) whitespace in recipe
+        currentInstruction = nextChar;
+        instructionFound = true;
+      }
     } else { //Expect value
       if (!instructionFound) {
         log_message(LOG_ERROR, "getNextInstruction: Recipe error, value before instruction");
@@ -316,9 +319,9 @@ void drum_rotation_full_turn() {
 }
 
 void stop_drum_immediately() {
-  log_message(LOG_DEBUG, "Stopping drum immediately");
   set_output(CONTACTOR_FORWARD, false);
   set_output(CONTACTOR_REVERSE, false);
+  log_message(LOG_DEBUG, "Stopping drum immediately");
   //Wait 1 second for full stopping before continuing
   rotation_start = 0;
   currentInstruction = 'W';
@@ -461,19 +464,21 @@ void manage_manual_input(char * input_buffer) {
 void handle_high_input(byte input) {
   switch (input) {
     case 0: //Manual reverse
+      log_message(LOG_WARNING, "Manual reverse turn triggered.");
       overrideRecipe = "R1";
       stop_drum_immediately();
       //rotate_drum();
       break;
     case 1: //Manual forward
+      log_message(LOG_WARNING, "Manual forward turn triggered.");
       overrideRecipe = "F1";
       stop_drum_immediately();
       break;
     case 5: //Motor protector feedback
-      log_message(LOG_WARN, "Motor protector reset (on again).");
+      log_message(LOG_WARNING, "Motor protector reset (on again).");
       break;
     case 6: //Emergency loop feedback
-      log_message(LOG_WARN, "Emergency stop released, or hatches closed.");
+      log_message(LOG_WARNING, "Emergency stop released, or hatches closed.");
       break;
   }
 }
@@ -511,30 +516,43 @@ void log_message(byte level, const char * message, ...) {
 
 }
 
+bool wifiWasDisconnected = true;
 void manage_connection() {
   // Loop until we're reconnected
   if (WiFi.status() != WL_CONNECTED) { // Reconnect wifi
-    if (wifiConnectionStart < 0 || now - wifiConnectionStart > WIFI_RECONNECT_TIMEOUT) {
-      log_message(LOG_INFO, "Connecting to Wifi");
-      wifiConnectionStart = now;
+    if(!wifiWasDisconnected && lastWifiConnectionAttempt > 0) { // Only warn once
+      log_message(LOG_WARNING, "Wifi connection lost, awaiting reconnect");
+      wifiWasDisconnected = true;
+    }
+    if (lastWifiConnectionAttempt == 0) { //Do a full connection first time around
+      lastWifiConnectionAttempt = now;
       WiFi.begin(ssid, password);
+      log_message(LOG_INFO, "Connecting to Wifi");
+    } else if (now - lastWifiConnectionAttempt > WIFI_RECONNECT_TIMEOUT) {
+      lastWifiConnectionAttempt = now;
+      WiFi.reconnect();
+      log_message(LOG_INFO, "Reconnecting to Wifi");
     }
   }
   else
   {
-    if (wifiConnectionStart > 0) {
-      wifiConnectionStart = -1;
+    if (wifiWasDisconnected) {
+      wifiWasDisconnected = false;
+      log_message(LOG_DEBUG, "Wifi connection took %d ms", millis()-lastWifiConnectionAttempt);
       IPAddress ip = WiFi.localIP();
       log_message(LOG_INFO, "Connected to Wifi with ip: %u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
     }
     if (!client.connected()) { // Reconnect MQTT
-      if (mqttConnectionStart < 0 || now - mqttConnectionStart > MQTT_RECONNECT_TIMEOUT) {
+      if (lastMQTTConnectionAttempt == 0 || now - lastMQTTConnectionAttempt > MQTT_RECONNECT_TIMEOUT) {
+        if(lastMQTTConnectionAttempt > 0) {
+          log_message(LOG_WARNING, "MQTT connection lost, reconnecting");
+        }
         log_message(LOG_INFO, "Connecting to MQTT broker");
-        mqttConnectionStart = now;
-        client.setServer(mqtt_server, 1883, mqtt_username, mqtt_password, MQTT_PREFIX MQTT_TOPIC_ONLINE, 1, true, "false");
+        lastMQTTConnectionAttempt = now;
+        client.setServer(mqtt_server, 1883);
         client.setCallback(callback);
         // Attempt to connect
-        if (client.connect(mqtt_client_id)) {
+        if (client.connect(mqtt_client_id, mqtt_username, mqtt_password, MQTT_PREFIX MQTT_TOPIC_ONLINE, 1, true, "false")) {
           log_message(LOG_INFO, "Connected to MQTT broker");
           // Once connected, publish an announcement...
           client.publish(MQTT_PREFIX MQTT_TOPIC_STATUS , "Connected");
@@ -542,23 +560,22 @@ void manage_connection() {
           client.publish(MQTT_PREFIX MQTT_TOPIC_ONLINE, "true");
           // ... and resubscribe
           client.subscribe(MQTT_PREFIX MQTT_TOPIC_OVERRIDE);
+          log_message(LOG_DEBUG, "MQTT connection took %d ms", millis()-lastMQTTConnectionAttempt);
         } else {
+          log_message(LOG_DEBUG, "MQTT connection attempt took %d ms", millis()-lastMQTTConnectionAttempt);
           log_message(LOG_ERROR, "Failed connection to MQTT broker. State: %d", client.state());
         }
       }
     } else {
       // Connected run main client loop
       client.loop();
-      if (mqttConnectionStart > 0) {
-        mqttConnectionStart = -1;
-      }
     }
   }
 }
 
 void loop() {
   now = millis();
-  //manage_connection();
+  manage_connection();
   check_inputs();
   check_serial_input();
   process_instructions();
