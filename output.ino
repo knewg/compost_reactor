@@ -1,8 +1,8 @@
 void set_output(byte output, bool state) {
-  if (output >= NUM_OUTPUTS) {
-    log_message(LOG_ERROR, "Output %d does not exist, max is %d", output, NUM_OUTPUTS);
+  if (output >= numOutputs) {
+    log_message(ERROR, "Output %d does not exist, max is %d", output, numOutputs);
     return;
   }
-  output_states[output] = state;
-  digitalWrite(output_pins[output], !state);
+  outputs[output].state = state;
+  digitalWrite(outputs[output].pin, !state);
 }

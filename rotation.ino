@@ -3,60 +3,60 @@ byte rotation_rotations = 0;
 bool rotation_induction_sensor_grace = true;
 
 void rotate_drum() {
-  bool direction_forward = currentInstruction == 'F';
+  bool direction_forward = recipe.current.instruction == 'F';
 
   //Drum currently stopped, start rotation
   if (rotation_start == 0) {
     rotation_rotations = 0;
-    log_message(LOG_INFO, "Rotating drum %c %d times ", currentInstruction, currentValue);
+    log_message(INFO, "Rotating drum %c %d times ", recipe.current.instruction, recipe.current.value);
     rotation_induction_sensor_grace = true;
-    if (inputsCurrentStates[INDUCTION_SENSOR_FEEDBACK]) {
-      log_message(LOG_WARNING, "Drum not started in zero position, sensor false");
+    if (inputs[INDUCTION_SENSOR_FEEDBACK].state.current) {
+      log_message(WARNING, "Drum not started in zero position, sensor false");
     }
     start_rotating_drum(direction_forward);
     rotation_start = now;
   }
 
   //To minimise max power, delay fan start a set time
-  if (!output_states[RELAY_FAN] && now - rotation_start >= FAN_STARTUP_DELAY_MS) {
+  if (!outputs[RELAY_FAN].state && now - rotation_start >= timing.delay.fanStartup) {
     set_output(RELAY_FAN, true);
   }
 
   //check if induction sensor grace period ended
-  if (rotation_induction_sensor_grace && now - rotation_start >= INDUCTION_SENSOR_GRACE_TIME_MS) {
+  if (rotation_induction_sensor_grace && now - rotation_start >= timing.grace.inductionSensor) {
     rotation_induction_sensor_grace = false;
   }
 
   //Induction sensor triggered a full rotation
-  if (!inputsCurrentStates[INDUCTION_SENSOR_FEEDBACK] && !rotation_induction_sensor_grace) {
+  if (!inputs[INDUCTION_SENSOR_FEEDBACK].state.current && !rotation_induction_sensor_grace) {
     drum_rotation_full_turn();
   }
 
   //Fallback if rotation took longer than max time
-  if ((now - rotation_start) / 1000 >= ROTATION_MAX_TIME) {
-    log_message(LOG_ERROR, "Rotation %d took longer than %d seconds, sensor probably broken ", rotation_rotations, ROTATION_MAX_TIME);
+  if (now - rotation_start >= timing.max.rotation) {
+    log_message(ERROR, "Rotation %d took longer than %u seconds, sensor probably broken ", rotation_rotations, timing.max.rotation);
     drum_rotation_full_turn();
   }
 
   //Rotation is finished, stop drum.
-  if (rotation_rotations >= currentValue) {
-    log_message(LOG_INFO, "Finished all %d rotations %s", currentValue, direction_forward ? "forward" : "reverse");
+  if (rotation_rotations >= recipe.current.value) {
+    log_message(INFO, "Finished all %d rotations %s", recipe.current.value, direction_forward ? "forward" : "reverse");
     stop_drum_immediately();
   }
 }
 
 void start_rotating_drum(bool direction_forward) {
   if (direction_forward) { //Rotate forward/clockwise
-    if (output_states[CONTACTOR_REVERSE]) {
-      log_message(LOG_ERROR, "Forward drum start requested, but drum already running in reverse. This is bad.");
+    if (outputs[CONTACTOR_REVERSE].state) {
+      log_message(ERROR, "Forward drum start requested, but drum already running in reverse. This is bad.");
       set_output(CONTACTOR_REVERSE, false);
       delay(5000);
     }
     set_output(CONTACTOR_FORWARD, true);
   }
   else { //Rotate reverse/counter clockwise
-    if (output_states[CONTACTOR_FORWARD]) {
-      log_message(LOG_ERROR, "Reverse drum start requested, but drum already running forward. This is bad.");
+    if (outputs[CONTACTOR_FORWARD].state) {
+      log_message(ERROR, "Reverse drum start requested, but drum already running forward. This is bad.");
       set_output(CONTACTOR_FORWARD, false);
       delay(5000);
     }
@@ -66,7 +66,7 @@ void start_rotating_drum(bool direction_forward) {
 
 
 void drum_rotation_full_turn() {
-  log_message(LOG_INFO, "Finished 1 of %d rotations %s in %d seconds", currentValue, currentInstruction == 'F' ? "forward" : "reverse", (now - rotation_start) / 1000);
+  log_message(INFO, "Finished 1 of %d rotations %s in %d seconds", recipe.current.value, recipe.current.instruction == 'F' ? "forward" : "reverse", now - rotation_start);
   rotation_induction_sensor_grace = true;
   rotation_start = now;
   ++rotation_rotations;
@@ -75,18 +75,18 @@ void drum_rotation_full_turn() {
 void stop_drum_immediately() {
   set_output(CONTACTOR_FORWARD, false);
   set_output(CONTACTOR_REVERSE, false);
-  log_message(LOG_DEBUG, "Stopping drum immediately");
+  log_message(DEBUG, "Stopping drum immediately");
   //Wait 1 second for full stopping before continuing
   rotation_start = 0;
-  currentInstruction = 'W';
-  currentValue = 1;
+  recipe.current.instruction = 'W';
+  recipe.current.value = 1;
 }
 
 void stop_drum_graceful() {
   if (rotation_start == 0) {
-    log_message(LOG_WARNING, "Graceful drum stop requested, but drum not running");
+    log_message(WARNING, "Graceful drum stop requested, but drum not running");
     return;
   }
-  log_message(LOG_DEBUG, "Stopping drum gracefully");
-  rotation_rotations = currentValue; //Override amount of rotations
+  log_message(DEBUG, "Stopping drum gracefully");
+  rotation_rotations = recipe.current.value; //Override amount of rotations
 }
