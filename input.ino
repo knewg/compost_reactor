@@ -1,4 +1,3 @@
-
 void check_inputs() {
   // Check all inputs
   for (byte i = 0; i < numInputs; i++) {
@@ -8,9 +7,9 @@ void check_inputs() {
 
       if (inputs[i].state.next != inputs[i].state.debounce) {
         inputs[i].state.debounce = inputs[i].state.next;
-        inputs[i].state.debounceTime = now;
+        inputs[i].state.debounceTime = timing.now;
       }
-      if ((now - inputs[i].state.debounceTime) > timing.delay.debounce) {
+      if ((timing.now - inputs[i].state.debounceTime) > timing.delay.debounce) {
         if (inputs[i].state.current == LOW && inputs[i].state.next == HIGH) { //Input i high
           log_message(DEBUG, "Input %d high", i);
           handle_high_input(i);
@@ -33,13 +32,13 @@ void handle_high_input(byte input) {
   switch (input) {
     case 0: //Manual reverse
       log_message(WARNING, "Manual reverse turn triggered.");
-      overrideRecipe = "R1";
+      recipe.oneShot = "R1";
       stop_drum_immediately();
       //rotate_drum();
       break;
     case 1: //Manual forward
       log_message(WARNING, "Manual forward turn triggered.");
-      overrideRecipe = "F1";
+      recipe.oneShot = "F1";
       stop_drum_immediately();
       break;
     case 5: //Motor protector feedback

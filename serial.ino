@@ -1,4 +1,3 @@
-
 struct SerialInput {
   unsigned long last;
   byte position;
@@ -10,7 +9,7 @@ struct SerialInput {
 
 void check_serial_input() {
   while (Serial.available()) {
-    serialInput.last = now;
+    serialInput.last = timing.now;
     serialInput.string[serialInput.position] = Serial.read();
     if (serialInput.string[serialInput.position] == '\n') {
       serialInput.string[serialInput.position] = '\0';
@@ -21,7 +20,7 @@ void check_serial_input() {
       ++serialInput.position;
     }
   }
-  if (serialInput.position > 0 && now - serialInput.last > timing.grace.serialInput) {
+  if (serialInput.position > 0 && timing.now - serialInput.last > timing.grace.serialInput) {
     serialInput.string[serialInput.position] = '\0';
     log_message(WARNING, "Serial input timed out without \n at: %s", serialInput.string);
     serialInput.position = 0;
@@ -76,6 +75,6 @@ void manage_serial_input(char * input_buffer) {
     manage_serial_input("output");
   }
   else {
-    log_message(WARNING, "Unknown command %s, full input is: %s", part, input_buffer);
+    log_message(WARNING, "Unktiming.nown command %s, full input is: %s", part, input_buffer);
   }
 }
