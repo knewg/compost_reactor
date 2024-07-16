@@ -19,6 +19,7 @@ void check_inputs() {
           handle_low_input(i);
         }
         inputs[i].state.current = inputs[i].state.next;
+        publishMqttInputState(i);
       }
     }
     else
@@ -32,13 +33,13 @@ void handle_high_input(byte input) {
   switch (input) {
     case 0: //Manual reverse
       log_message(WARNING, "Manual reverse turn triggered.");
-      recipe.oneShot = "R1";
+      strcpy(recipe.oneShot, "R1");
       stop_drum_immediately();
       //rotate_drum();
       break;
     case 1: //Manual forward
       log_message(WARNING, "Manual forward turn triggered.");
-      recipe.oneShot = "F1";
+      strcpy(recipe.oneShot, "F1");
       stop_drum_immediately();
       break;
     case 5: //Motor protector feedback

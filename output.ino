@@ -5,4 +5,5 @@ void set_output(byte output, bool state) {
   }
   outputs[output].state = state;
   digitalWrite(outputs[output].pin, !state);
+  publishMqttOutputState(output);
 }

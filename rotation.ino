@@ -21,6 +21,11 @@ void rotate_drum() {
     }
     start_rotating_drum(direction_forward);
     rotation.start = timing.now;
+    if(direction_forward) {
+      mqttUpdateStatus("rotating forward");
+    } else {
+      mqttUpdateStatus("rotating reverse");
+    }
   }
 
   //To minimise max power, delay fan start a set time

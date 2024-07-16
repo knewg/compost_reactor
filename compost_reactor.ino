@@ -16,6 +16,7 @@
 #define LOG_PREFIX_LENGTH 7
 
 #define MQTT_LOG_QUEUE_MAX 10
+#define MQTT_TOPIC_MAX_LENGTH 50
 #define MQTT_PREFIX "hallfors/compost_reactor/"
 
 
@@ -91,7 +92,8 @@ enum Inputs {
 };
 
 struct Input {
-  byte pin;
+  const byte pin;
+  const char * topic;
   struct InputState {
     bool current;
     bool debounce;
@@ -102,14 +104,14 @@ struct Input {
 
 const byte numInputs = 8;
 struct Input inputs[numInputs] = {
-  [MANUAL_REVERSE_BUTTON] = { .pin = MANUAL_REVERSE_BUTTON_PIN },
-  [MANUAL_FORWARD_BUTTON] = { .pin = MANUAL_FORWARD_BUTTON_PIN },
-  [CONTACTOR_FORWARD_FEEDBACK] = { .pin = CONTACTOR_FORWARD_FEEDBACK_PIN },
-  [CONTACTOR_REVERSE_FEEDBACK] = { .pin = CONTACTOR_REVERSE_FEEDBACK_PIN },
-  [MOTOR_PROTECTOR_FEEDBACK] = { .pin = MOTOR_PROTECTOR_FEEDBACK_PIN },
-  [EMERGENCY_LOOP_FEEDBACK] = { .pin = EMERGENCY_LOOP_FEEDBACK_PIN },
-  [INDUCTION_SENSOR_FEEDBACK] = { .pin = INDUCTION_SENSOR_FEEDBACK_PIN },
-  [SPARE_FEEDBACK] = { .pin = SPARE_FEEDBACK_PIN }
+  [MANUAL_REVERSE_BUTTON] = { .pin = MANUAL_REVERSE_BUTTON_PIN, .topic = "manual_reverse" },
+  [MANUAL_FORWARD_BUTTON] = { .pin = MANUAL_FORWARD_BUTTON_PIN, .topic = "manual_forward" },
+  [CONTACTOR_FORWARD_FEEDBACK] = { .pin = CONTACTOR_FORWARD_FEEDBACK_PIN, .topic = "contactor_forward" },
+  [CONTACTOR_REVERSE_FEEDBACK] = { .pin = CONTACTOR_REVERSE_FEEDBACK_PIN, .topic = "contactor_reverse" },
+  [MOTOR_PROTECTOR_FEEDBACK] = { .pin = MOTOR_PROTECTOR_FEEDBACK_PIN, .topic = "motor_protector" },
+  [EMERGENCY_LOOP_FEEDBACK] = { .pin = EMERGENCY_LOOP_FEEDBACK_PIN, .topic = "emergency_loop" },
+  [INDUCTION_SENSOR_FEEDBACK] = { .pin = INDUCTION_SENSOR_FEEDBACK_PIN, .topic = "rotation_sensor" },
+  [SPARE_FEEDBACK] = { .pin = SPARE_FEEDBACK_PIN, .topic = "spare" }
 };
 
 enum Outputs {
@@ -121,15 +123,16 @@ enum Outputs {
 
 struct Output {
   bool state;
-  byte pin;
+  const byte pin;
+  const char * topic;
 };
 
 const byte numOutputs = 4;
 struct Output outputs[numOutputs] = {
-  [CONTACTOR_FORWARD] = { .pin = CONTACTOR_FORWARD_PIN },
-  [CONTACTOR_REVERSE] = { .pin = CONTACTOR_REVERSE_PIN },
-  [RELAY_FAN] = { .pin = RELAY_FAN_PIN },
-  [RELAY_SPARE] = { .pin = RELAY_SPARE_PIN }
+  [CONTACTOR_FORWARD] = { .pin = CONTACTOR_FORWARD_PIN, .topic = "rotate_forward" },
+  [CONTACTOR_REVERSE] = { .pin = CONTACTOR_REVERSE_PIN, .topic = "rotate_reverse" },
+  [RELAY_FAN] = { .pin = RELAY_FAN_PIN, .topic = "fan" },
+  [RELAY_SPARE] = { .pin = RELAY_SPARE_PIN, .topic = "spare" }
 };
 
 struct Recipe {
@@ -137,9 +140,10 @@ struct Recipe {
     char instruction;
     int value;
     byte position;
+    char * recipe;
   } current;
-  char * oneShot;
-  char * rolling;
+  char oneShot[20];
+  char rolling[30];
 } recipe = {
   .current = {
     .instruction = '0',
@@ -160,10 +164,19 @@ struct Mqtt {
   struct Topics {
     const char * log;
     const char * oneShot;
+    const char * recipe;
     const char * status;
-    const char * settings;
+    const char * logLevel;
     const char * connected;
+    const char * rssi;
+    char input[numInputs][MQTT_TOPIC_MAX_LENGTH];
+    char output[numOutputs][MQTT_TOPIC_MAX_LENGTH];
   } topics;
+  struct WriteTopics {
+    char oneShot[MQTT_TOPIC_MAX_LENGTH];
+    char recipe[MQTT_TOPIC_MAX_LENGTH];
+    char logLevel[MQTT_TOPIC_MAX_LENGTH];
+  } writeTopics;
   struct Log {
     char queue [MQTT_LOG_QUEUE_MAX][100];
     byte max;
@@ -174,9 +187,11 @@ struct Mqtt {
   .topics = {
     .log = MQTT_PREFIX "log",
     .oneShot = MQTT_PREFIX "one_shot_recipe",
+    .recipe = MQTT_PREFIX "recipe",
     .status = MQTT_PREFIX "status",
-    .settings = MQTT_PREFIX "settings",
-    .connected = MQTT_PREFIX "connected"
+    .logLevel = MQTT_PREFIX "log_level",
+    .connected = MQTT_PREFIX "connected",
+    .rssi = MQTT_PREFIX "rssi"
   },
   .log = {
     .max = MQTT_LOG_QUEUE_MAX,
@@ -187,6 +202,7 @@ struct Mqtt {
 
 struct Wifi {
   WiFiClient client;
+  long rssi;
   bool disconnected;
   unsigned long lastReconnect;
 } wifi = {
@@ -214,27 +230,11 @@ void setup() {
   WiFi.setHostname(credentials.mqtt.client_id);
   WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN);
   WiFi.setSortMethod(WIFI_CONNECT_AP_BY_SIGNAL);
+  setupMqttTopics();
   manage_connection();
   delay(1000);
 }
 
-void callback(char* topic, byte* payload, unsigned int length) {
-  char sendMessage[100] = "";
-  log_message(DEBUG, "Message arrived [%s]", topic);
-  for (int i = 0; i < length; i++) {
-    if ((char)payload[i] == '\n') continue;
-    sendMessage[i] = ((char)payload[i]);
-  }
-  sendMessage[length] = '\0';
-  if (strcmp(topic, "set")) {
-    if (sendMessage == "recipe") {
-
-    } else {
-
-    }
-  }
-  log_message(USER_INPUT, "Topic:  %s, Message: %s", topic, sendMessage);
-}
 
 void loop() {
   timing.now = millis();
